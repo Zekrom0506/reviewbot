@@ -1,0 +1,126 @@
+# ReviewBot's own Semgrep rules. Kept small and high-signal on purpose.
+rules:
+  # ---------------- Python ----------------
+  - id: sql-string-formatting
+    languages: [python]
+    severity: ERROR
+    message: SQL built with string formatting can allow SQL injection. Use query parameters instead.
+    metadata: {category: security}
+    pattern-either:
+      - pattern: $CURSOR.execute(f"...", ...)
+      - pattern: $CURSOR.execute("..." % $X, ...)
+      - pattern: $CURSOR.execute("..." + $X, ...)
+      - pattern: $CURSOR.execute("...".format(...), ...)
+
+  - id: eval-or-exec
+    languages: [python]
+    severity: ERROR
+    message: eval/exec runs arbitrary code. Avoid it, especially on user input.
+    metadata: {category: security}
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+
+  - id: subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: shell=True with dynamic input allows command injection. Pass a list of arguments instead.
+    metadata: {category: security}
+    pattern: subprocess.$FUNC(..., shell=True, ...)
+
+  - id: unsafe-yaml-load
+    languages: [python]
+    severity: ERROR
+    message: yaml.load without SafeLoader can run arbitrary code. Use yaml.safe_load.
+    metadata: {category: security}
+    patterns:
+      - pattern: yaml.load(...)
+      - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+
+  - id: pickle-load
+    languages: [python]
+    severity: WARNING
+    message: Unpickling untrusted data can run arbitrary code.
+    metadata: {category: security}
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+
+  - id: requests-verify-false
+    languages: [python]
+    severity: ERROR
+    message: TLS certificate verification is disabled, which allows man-in-the-middle attacks.
+    metadata: {category: security}
+    pattern: requests.$FUNC(..., verify=False, ...)
+
+  - id: weak-password-hash
+    languages: [python]
+    severity: ERROR
+    message: MD5/SHA1 are too fast for password hashing. Use bcrypt, scrypt or argon2.
+    metadata: {category: security}
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+
+  - id: swallowed-exception
+    languages: [python]
+    severity: WARNING
+    message: The exception is silently ignored, which hides real failures. Log it or handle it.
+    metadata: {category: error-handling}
+    pattern-either:
+      - pattern: |
+          try:
+              ...
+          except:
+              pass
+      - pattern: |
+          try:
+              ...
+          except Exception:
+              pass
+
+  - id: requests-without-timeout
+    languages: [python]
+    severity: WARNING
+    message: HTTP call has no timeout, so it can hang forever.
+    metadata: {category: reliability}
+    patterns:
+      - pattern-either:
+          - pattern: requests.get(...)
+          - pattern: requests.post(...)
+          - pattern: requests.put(...)
+          - pattern: requests.delete(...)
+      - pattern-not: requests.$FUNC(..., timeout=$T, ...)
+
+  - id: flask-debug-true
+    languages: [python]
+    severity: WARNING
+    message: Running with debug=True exposes an interactive debugger. Never enable it in production.
+    metadata: {category: security}
+    pattern: $APP.run(..., debug=True, ...)
+
+  # ---------------- JavaScript / TypeScript ----------------
+  - id: js-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: eval runs arbitrary code. Avoid it.
+    metadata: {category: security}
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+
+  - id: js-innerhtml
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Assigning to innerHTML with dynamic data can cause XSS. Use textContent.
+    metadata: {category: security}
+    patterns:
+      - pattern: $EL.innerHTML = $X
+      - pattern-not: $EL.innerHTML = "..."
+
+  - id: js-sql-template
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: SQL built with a template string can allow SQL injection. Use parameters.
+    metadata: {category: security}
+    pattern: $DB.query(`...${$X}...`, ...)
