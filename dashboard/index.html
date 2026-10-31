@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReviewBot Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #ffffff; --text: #1c2128; --muted: #656d76; --line: #e3e6ea;
+      --green: #1a7f37; --amber: #b7791f; --red: #cf222e; --accent: #3b5bdb;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0f1216; --card: #171b21; --text: #e6e9ed; --muted: #8b949e; --line: #2a3039; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+           font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    header { padding: 28px 24px 8px; max-width: 1100px; margin: 0 auto; display: flex;
+             justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+    h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+    .muted { color: var(--muted); font-size: 13px; }
+    main { max-width: 1100px; margin: 0 auto; padding: 16px 24px 48px; display: grid; gap: 16px; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .tile, .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+    .tile .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .tile .value { font-size: 28px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .tile .sub { color: var(--muted); font-size: 12px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+    h2 { font-size: 14px; margin: 0 0 12px; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 500; }
+    td.num { font-variant-numeric: tabular-nums; }
+    .pill { padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 500; color: white; }
+    .low { background: var(--green); } .medium { background: var(--amber); } .high { background: var(--red); }
+    .table-wrap { overflow-x: auto; }
+    canvas { max-height: 240px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🤖 ReviewBot</h1>
+    <span class="muted" id="updated">Loading…</span>
+  </header>
+  <main>
+    <section class="tiles">
+      <div class="tile"><div class="label">PRs reviewed</div><div class="value" id="reviews">–</div></div>
+      <div class="tile"><div class="label">Helpful rate</div><div class="value" id="helpful">–</div><div class="sub" id="votes"></div></div>
+      <div class="tile"><div class="label">Avg review time</div><div class="value" id="latency">–</div><div class="sub" id="p95"></div></div>
+      <div class="tile"><div class="label">Avg cost / PR</div><div class="value" id="cost">–</div><div class="sub" id="totalcost"></div></div>
+      <div class="tile"><div class="label">Comments / PR</div><div class="value" id="perpr">–</div><div class="sub" id="cache"></div></div>
+    </section>
+
+    <section class="grid2">
+      <div class="card"><h2>Feedback by category</h2><canvas id="categoryChart"></canvas></div>
+      <div class="card"><h2>Reviews per day</h2><canvas id="dayChart"></canvas></div>
+    </section>
+
+    <section class="grid2">
+      <div class="card"><h2>Risk labels</h2><canvas id="riskChart"></canvas></div>
+      <div class="card">
+        <h2>Tuned confidence thresholds</h2>
+        <div class="table-wrap"><table id="thresholds"><thead><tr><th>Repo</th><th>Category</th><th>Min confidence</th></tr></thead><tbody></tbody></table></div>
+        <p class="muted">Categories whose comments get mostly 👎 automatically need higher confidence.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Recent reviews</h2>
+      <div class="table-wrap">
+        <table id="recent">
+          <thead><tr><th>PR</th><th>Risk</th><th>Comments</th><th>Time</th><th>Cost</th><th>Model</th><th>When</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const charts = {};
+
+    function drawChart(id, config) {
+      if (charts[id]) charts[id].destroy();
+      charts[id] = new Chart(document.getElementById(id), config);
+    }
+
+    function setText(id, value) {
+      document.getElementById(id).textContent = value;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text == null ? '' : String(text);
+      return div.innerHTML;
+    }
+
+    async function load() {
+      const response = await fetch('/api/stats');
+      const stats = await response.json();
+      const totals = stats.totals;
+
+      setText('reviews', totals.reviews);
+      setText('helpful', totals.helpfulRate === null ? '–' : Math.round(totals.helpfulRate * 100) + '%');
+      setText('votes', totals.votedComments + ' of ' + totals.comments + ' comments rated');
+      setText('latency', totals.avgLatencySec + 's');
+      setText('p95', 'p95 ' + totals.p95LatencySec + 's');
+      setText('cost', '₹' + totals.avgCostInr.toFixed(2));
+      setText('totalcost', '₹' + totals.totalCostInr + ' total');
+      setText('perpr', totals.avgCommentsPerPr);
+      setText('cache', totals.cacheHits + ' cache hits');
+      setText('updated', 'Updated ' + new Date().toLocaleTimeString());
+
+      const categories = Object.keys(stats.categories);
+      drawChart('categoryChart', {
+        type: 'bar',
+        data: {
+          labels: categories,
+          datasets: [
+            { label: '👍', data: categories.map(c => stats.categories[c].up), backgroundColor: '#1a7f37' },
+            { label: '👎', data: categories.map(c => stats.categories[c].down), backgroundColor: '#cf222e' },
+            { label: 'no vote', data: categories.map(c => stats.categories[c].comments - stats.categories[c].up - stats.categories[c].down), backgroundColor: '#8b949e' }
+          ]
+        },
+        options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+      });
+
+      const days = Object.keys(stats.reviewsPerDay);
+      drawChart('dayChart', {
+        type: 'line',
+        data: { labels: days, datasets: [{ label: 'Reviews', data: days.map(d => stats.reviewsPerDay[d]), borderColor: '#3b5bdb', tension: 0.3 }] },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      });
+
+      const riskOrder = ['low', 'medium', 'high'];
+      drawChart('riskChart', {
+        type: 'bar',
+        data: { labels: riskOrder, datasets: [{ data: riskOrder.map(r => stats.riskLevels[r] || 0), backgroundColor: ['#1a7f37', '#b7791f', '#cf222e'] }] },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      });
+
+      const thresholdRows = [];
+      for (const [repo, values] of Object.entries(stats.thresholds)) {
+        for (const [category, value] of Object.entries(values)) {
+          thresholdRows.push(`<tr><td>${escapeHtml(repo)}</td><td>${escapeHtml(category)}</td><td class="num">${value}</td></tr>`);
+        }
+      }
+      document.querySelector('#thresholds tbody').innerHTML =
+        thresholdRows.join('') || '<tr><td colspan="3" class="muted">No tuning yet (needs 5+ votes in a category)</td></tr>';
+
+      document.querySelector('#recent tbody').innerHTML = stats.recent.map(review => `
+        <tr>
+          <td>${escapeHtml(review.repo)}#${escapeHtml(review.prNumber)}</td>
+          <td><span class="pill ${escapeHtml(review.riskLevel)}">${escapeHtml(review.riskLevel)}</span></td>
+          <td class="num">${escapeHtml(review.commentCount)}</td>
+          <td class="num">${escapeHtml(review.latencySec)}s</td>
+          <td class="num">₹${Number(review.costInr || 0).toFixed(3)}</td>
+          <td>${escapeHtml(review.model)}</td>
+          <td class="muted">${escapeHtml((review.createdAt || '').replace('T', ' ').slice(0, 16))}</td>
+        </tr>`).join('') || '<tr><td colspan="7" class="muted">No reviews yet. Open a pull request!</td></tr>';
+    }
+
+    load();
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>
