@@ -187,6 +187,16 @@ class GitHubClient:
         return self._request("POST", f"/repos/{repo}/pulls", json=payload).json()
 
 
+def get_repo_installation_id(settings: Settings, repo: str) -> int:
+    """Finds the installation of our App on one repository."""
+    client = GitHubClient(settings, installation_id=0)
+    headers = {"Authorization": f"Bearer {client._app_jwt()}", "Accept": "application/vnd.github+json"}
+    response = requests.get(f"{client.api}/repos/{repo}/installation", headers=headers, timeout=20)
+    if response.status_code != 200:
+        raise GitHubError(f"The App is not installed on {repo}: {response.status_code} {response.text}")
+    return response.json()["id"]
+
+
 def list_app_installations(settings: Settings) -> list:
     """Uses the App JWT (not an installation token) to list installations."""
     client = GitHubClient(settings, installation_id=0)
