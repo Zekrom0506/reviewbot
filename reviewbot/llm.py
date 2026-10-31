@@ -72,17 +72,23 @@ class LLMClient:
         last_error = None
         for attempt in range(attempts):
             started = time.time()
+            request = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0.1,
+                "max_tokens": 8000,
+                "response_format": {"type": "json_object"},
+            }
+            # gpt-oss models "think" before answering. Less thinking for the
+            # small model keeps small reviews fast.
+            if "gpt-oss" in model:
+                effort = "medium" if model == self.settings.large_model else "low"
+                request["extra_body"] = {"reasoning_effort": effort}
             try:
-                response = self.client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0.1,
-                    max_tokens=4000,
-                    response_format={"type": "json_object"},
-                )
+                response = self.client.chat.completions.create(**request)
                 content = response.choices[0].message.content or ""
                 data = extract_json(content)
                 usage = response.usage
