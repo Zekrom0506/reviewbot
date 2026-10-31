@@ -1,0 +1,86 @@
+# Runs the whole bot on your laptop. Start with:  docker compose up --build
+#
+#   server    webhook receiver + setup page + dashboard  (http://localhost:8000)
+#   worker    takes review jobs from the queue
+#   smee      forwards GitHub webhooks from smee.io to the server
+#   sqs       ElasticMQ, a local Amazon SQS
+#   dynamodb  DynamoDB Local, Amazon's offline DynamoDB
+#   postgres  Postgres + pgvector for code embeddings
+
+x-app: &app
+  build: .
+  image: reviewbot:latest
+  env_file: .env
+  environment:
+    AWS_ACCESS_KEY_ID: local
+    AWS_SECRET_ACCESS_KEY: local
+    AWS_REGION: ap-south-1
+    SQS_ENDPOINT_URL: http://sqs:9324
+    QUEUE_URL: http://sqs:9324/reviewbot-jobs
+    DYNAMODB_ENDPOINT_URL: http://dynamodb:8000
+    DATABASE_URL: postgresql://reviewbot:reviewbot@postgres:5432/reviewbot
+    SECRETS_FILE: /data/secrets/github_app.json
+    PUBLIC_URL: http://localhost:8000
+  volumes:
+    - ./data/secrets:/data/secrets
+    - ./eval/results:/app/eval/results
+  depends_on:
+    postgres:
+      condition: service_healthy
+    sqs:
+      condition: service_started
+    dynamodb:
+      condition: service_started
+  restart: unless-stopped
+
+services:
+  server:
+    <<: *app
+    ports:
+      - "8000:8000"
+    command: uvicorn reviewbot.server:app --host 0.0.0.0 --port 8000
+
+  worker:
+    <<: *app
+    command: python -m reviewbot.worker
+
+  smee:
+    image: node:20-alpine
+    volumes:
+      - ./data/secrets:/data/secrets
+    command: >
+      sh -c "while [ ! -f /data/secrets/smee_url ]; do echo 'waiting for smee url'; sleep 5; done;
+             npx --yes smee-client@2 --url $$(cat /data/secrets/smee_url) --target http://server:8000/webhook"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  sqs:
+    image: softwaremill/elasticmq:1.6.9
+    volumes:
+      - ./config/elasticmq.conf:/opt/elasticmq.conf
+    ports:
+      - "9324:9324"
+
+  dynamodb:
+    image: amazon/dynamodb-local:2.5.3
+    user: root
+    command: -jar DynamoDBLocal.jar -sharedDb -dbPath /data
+    volumes:
+      - ./data/dynamodb:/data
+    ports:
+      - "8001:8000"
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: reviewbot
+      POSTGRES_PASSWORD: reviewbot
+      POSTGRES_DB: reviewbot
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reviewbot"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
