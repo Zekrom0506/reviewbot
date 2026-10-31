@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check reviewbot lambdas eval scripts tests infra
+      - name: Unit tests
+        run: pytest -q tests
+      - name: Sample repo tests
+        working-directory: sample_repo
+        run: pytest -q
+
+  cdk-synth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install CDK
+        run: |
+          npm install -g aws-cdk
+          pip install -r infra/requirements.txt
+      - name: Synthesize CloudFormation template
+        working-directory: infra
+        run: cdk synth --quiet
+
+  # Deploys to AWS on pushes to main, but only once you add the
+  # AWS_ROLE_ARN secret to the repository (see docs/AWS_DEPLOY.md).
+  deploy:
+    needs: [test, cdk-synth]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+    steps:
+      - name: Skip when AWS is not configured
+        if: env.AWS_ROLE_ARN == ''
+        run: echo "AWS_ROLE_ARN secret not set, skipping deploy"
+      - uses: actions/checkout@v4
+        if: env.AWS_ROLE_ARN != ''
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: env.AWS_ROLE_ARN != ''
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-south-1
+      - uses: actions/setup-python@v5
+        if: env.AWS_ROLE_ARN != ''
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        if: env.AWS_ROLE_ARN != ''
+        with:
+          node-version: "20"
+      - name: Deploy
+        if: env.AWS_ROLE_ARN != ''
+        working-directory: infra
+        run: |
+          npm install -g aws-cdk
+          pip install -r requirements.txt
+          cdk deploy --require-approval never

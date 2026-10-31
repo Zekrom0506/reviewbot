@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import requests
@@ -31,11 +32,25 @@ from reviewbot.webhooks import jobs_from_event
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("reviewbot.server")
 
-app = FastAPI(title="ReviewBot")
 DASHBOARD_FILE = Path(__file__).resolve().parent.parent / "dashboard" / "index.html"
 
 _queue = None
 _storage = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Runs once when the server starts."""
+    settings = load_settings()
+    ensure_smee_channel(settings)
+    try:
+        get_storage()
+    except Exception as error:
+        logger.warning("DynamoDB not ready yet: %s", error)
+    yield
+
+
+app = FastAPI(title="ReviewBot", lifespan=lifespan)
 
 
 def get_queue():
@@ -51,16 +66,6 @@ def get_storage():
         _storage = Storage(load_settings())
         _storage.create_tables_if_missing()
     return _storage
-
-
-@app.on_event("startup")
-def on_startup():
-    settings = load_settings()
-    ensure_smee_channel(settings)
-    try:
-        get_storage()
-    except Exception as error:
-        logger.warning("DynamoDB not ready yet: %s", error)
 
 
 def ensure_smee_channel(settings) -> str:

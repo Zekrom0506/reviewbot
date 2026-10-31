@@ -1,0 +1,19 @@
+[project]
+name = "reviewbot"
+version = "1.0.0"
+description = "Context-aware, low-noise AI pull-request reviewer"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+extend-exclude = ["sample_repo", "infra/cdk.out"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"eval/cases.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

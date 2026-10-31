@@ -76,7 +76,10 @@ def scan_for_secrets(files: dict) -> list:
                             file=path,
                             line=line_number,
                             rule="hardcoded-credential",
-                            message=f"Hard-coded value assigned to '{match.group(1)}'. Load it from an environment variable or secret manager instead.",
+                            message=(
+                                f"Hard-coded value assigned to '{match.group(1)}'. "
+                                "Load it from an environment variable or secret manager instead."
+                            ),
                             severity="high",
                             category="secret",
                         )

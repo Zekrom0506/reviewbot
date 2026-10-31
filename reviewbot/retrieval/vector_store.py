@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def cosine_similarity(a: list, b: list) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a)) or 1.0
     norm_b = math.sqrt(sum(y * y for y in b)) or 1.0
     return dot / (norm_a * norm_b)
@@ -30,7 +30,7 @@ class InMemoryVectorStore:
 
     def replace_file(self, repo: str, path: str, chunks: list, embeddings: list) -> None:
         self.rows = [row for row in self.rows if not (row[0] == repo and row[1].path == path)]
-        for chunk, embedding in zip(chunks, embeddings):
+        for chunk, embedding in zip(chunks, embeddings, strict=True):
             self.rows.append((repo, chunk, embedding))
 
     def remove_files_not_in(self, repo: str, keep_paths: set) -> None:
@@ -110,7 +110,7 @@ class PgVectorStore:
 
         with self.connection.transaction():
             self.connection.execute("DELETE FROM code_chunks WHERE repo = %s AND path = %s", (repo, path))
-            for chunk, embedding in zip(chunks, embeddings):
+            for chunk, embedding in zip(chunks, embeddings, strict=True):
                 self.connection.execute(
                     """INSERT INTO code_chunks (repo, path, name, start_line, end_line, content, embedding)
                        VALUES (%s, %s, %s, %s, %s, %s, %s)""",

@@ -21,7 +21,8 @@ SOURCE_EXTENSIONS = (".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".rb")
 
 def is_test_file(path: str) -> bool:
     name = path.split("/")[-1].lower()
-    return name.startswith("test") or name.endswith(("_test.py", ".test.js", ".test.ts", ".spec.ts", ".spec.js")) or "/tests/" in "/" + path
+    test_suffixes = ("_test.py", ".test.js", ".test.ts", ".spec.ts", ".spec.js")
+    return name.startswith("test") or name.endswith(test_suffixes) or "/tests/" in "/" + path
 
 
 def max_risk(first: str, second: str) -> str:
