@@ -1,0 +1,9 @@
+strictness: normal
+max_comments: 5
+ignore_paths:
+  - "docs/**"
+rules:
+  - "All SQL must go through shop/db.py helpers and use ? parameters."
+  - "Money is always an integer number of paise, never a float."
+  - "Never log passwords, tokens or full card numbers."
+  - "Every HTTP call must set a timeout."
