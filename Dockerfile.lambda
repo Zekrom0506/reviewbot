@@ -1,0 +1,19 @@
+# Container image for the AWS Lambda functions (built by CDK on deploy).
+FROM public.ecr.aws/lambda/python:3.12
+
+ENV FASTEMBED_CACHE_PATH=/opt/fastembed \
+    HOME=/tmp \
+    SEMGREP_SEND_METRICS=off
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
+
+COPY reviewbot ${LAMBDA_TASK_ROOT}/reviewbot
+COPY lambdas ${LAMBDA_TASK_ROOT}/lambdas
+COPY config ${LAMBDA_TASK_ROOT}/config
+COPY dashboard ${LAMBDA_TASK_ROOT}/dashboard
+
+# Each function overrides this with its own handler (see infra/reviewbot_stack.py)
+CMD ["lambdas.webhook_handler.handler"]

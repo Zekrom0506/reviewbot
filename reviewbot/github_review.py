@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from reviewbot.config import Settings
 from reviewbot.formatting import to_github_comment
 from reviewbot.github_client import GitHubClient
+from reviewbot.metrics import publish_review_metrics
 from reviewbot.pipeline import ReviewInput, ReviewPipeline
 from reviewbot.repo_config import parse_repo_config
 from reviewbot.retrieval.indexer import index_repository
@@ -81,7 +82,8 @@ def review_pull_request(settings: Settings, job: dict, llm, store, embedder, sto
     github_ids = {}
     try:
         for posted_comment in github.list_review_comments(repo, number, posted["id"]):
-            github_ids[(posted_comment["path"], posted_comment.get("line") or posted_comment.get("original_line"))] = posted_comment["id"]
+            line = posted_comment.get("line") or posted_comment.get("original_line")
+            github_ids[(posted_comment["path"], line)] = posted_comment["id"]
     except Exception as error:
         logger.warning("Could not list posted comments: %s", error)
 
@@ -133,6 +135,7 @@ def review_pull_request(settings: Settings, job: dict, llm, store, embedder, sto
             }
         )
 
+    publish_review_metrics(total_latency_ms, result.cost_inr, len(result.comments), result.risk_level)
     logger.info(
         "Reviewed %s#%d: risk=%s comments=%d cost=₹%.3f latency=%.1fs",
         repo, number, result.risk_level, len(result.comments), result.cost_inr, total_latency_ms / 1000,
